@@ -29,26 +29,35 @@ export default factories.createCoreController(
         if (!isNaN(max)) query.where.price = { $lte: max };
       }
 
+      // ------------------------------
+      // SORTING
+      // ------------------------------
       if (order === "a-z") query.orderBy = { title: "asc" };
       if (order === "z-a") query.orderBy = { title: "desc" };
       if (order === "high") query.orderBy = { price: "desc" };
       if (order === "low") query.orderBy = { price: "asc" };
 
+      // ------------------------------
+      // PAGINATION
+      // ------------------------------
       const pageNum = Number(page) || 1;
       const sizeNum = Number(pageSize) || 10;
-
       query.skip = (pageNum - 1) * sizeNum;
       query.take = sizeNum;
 
       // ------------------------------
-      // RUN PRODUCT QUERY
+      // RUN PRODUCT QUERY (FILTER OUT DRAFTS)
       // ------------------------------
-      const products = await strapi.db
-        .query("api::product.product")
-        .findMany(query);
+      const products = await strapi.db.query("api::product.product").findMany({
+        ...query,
+        where: {
+          ...query.where,
+          publishedAt: { $notNull: true }, // only published entries
+        },
+      });
 
       // ------------------------------
-      // MAP PRODUCTS TO REQUIRED FORMAT
+      // MAP PRODUCTS TO FRONTEND FORMAT
       // ------------------------------
       const data = products.map((p) => ({
         id: p.id,
@@ -84,7 +93,14 @@ export default factories.createCoreController(
       const companies = ["all", ...companiesRows.map((r) => r.company)];
 
       // ------------------------------
-      // RETURN EXACT FORMAT
+      // TOTAL COUNT FOR PAGINATION
+      // ------------------------------
+      const total = await strapi.db.query("api::product.product").count({
+        where: { ...query.where, publishedAt: { $notNull: true } },
+      });
+
+      // ------------------------------
+      // RETURN EXACT FRONTEND FORMAT
       // ------------------------------
       return {
         data,
@@ -92,14 +108,8 @@ export default factories.createCoreController(
           pagination: {
             page: pageNum,
             pageSize: sizeNum,
-            pageCount: Math.ceil(
-              (await strapi.db.query("api::product.product").count({
-                where: query.where,
-              })) / sizeNum
-            ),
-            total: await strapi.db.query("api::product.product").count({
-              where: query.where,
-            }),
+            pageCount: Math.ceil(total / sizeNum),
+            total,
           },
           categories,
           companies,
